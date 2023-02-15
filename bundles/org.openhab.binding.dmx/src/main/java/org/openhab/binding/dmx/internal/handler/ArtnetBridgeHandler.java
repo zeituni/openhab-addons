@@ -46,8 +46,6 @@ public class ArtnetBridgeHandler extends DmxOverEthernetHandler {
 
     private int retryIterval;
 
-    private Socket checkConnectionSocket;
-
     public ArtnetBridgeHandler(Bridge artnetBridge) {
         super(artnetBridge);
     }
