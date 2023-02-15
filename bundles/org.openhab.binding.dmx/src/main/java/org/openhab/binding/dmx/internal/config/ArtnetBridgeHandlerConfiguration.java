@@ -26,4 +26,6 @@ public class ArtnetBridgeHandlerConfiguration {
     public String address = "";
     public String localaddress = "";
     public String refreshmode = "standard";
+    // retry interval when network is disconnected (default 10 seconds)
+    public int retryInterval = 10;
 }

@@ -14,6 +14,7 @@ package org.openhab.binding.dmx.internal.handler;
 
 import static org.openhab.binding.dmx.internal.DmxBindingConstants.THING_TYPE_SACN_BRIDGE;
 
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Set;
@@ -48,6 +49,21 @@ public class SacnBridgeHandler extends DmxOverEthernetHandler {
     public SacnBridgeHandler(Bridge sacnBridge) {
         super(sacnBridge);
         senderUUID = UUID.randomUUID();
+    }
+
+    @Override
+    protected void openConnection() {
+        if (getThing().getStatus() != ThingStatus.ONLINE) {
+            try {
+                createDatagramSocket();
+                updateStatus(ThingStatus.ONLINE);
+                logger.debug("opened socket {} in bridge {}", senderNode, this.thing.getUID());
+            } catch (SocketException e) {
+                logger.debug("could not open socket {} in bridge {}: {}", senderNode, this.thing.getUID(),
+                        e.getMessage());
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "opening UDP socket failed");
+            }
+        }
     }
 
     @Override

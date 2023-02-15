@@ -14,6 +14,8 @@ package org.openhab.binding.dmx.internal.handler;
 
 import static org.openhab.binding.dmx.internal.DmxBindingConstants.THING_TYPE_ARTNET_BRIDGE;
 
+import java.io.IOException;
+import java.net.*;
 import java.util.Collections;
 import java.util.Set;
 
@@ -42,6 +44,10 @@ public class ArtnetBridgeHandler extends DmxOverEthernetHandler {
 
     private final Logger logger = LoggerFactory.getLogger(ArtnetBridgeHandler.class);
 
+    private int retryIterval;
+
+    private Socket checkConnectionSocket;
+
     public ArtnetBridgeHandler(Bridge artnetBridge) {
         super(artnetBridge);
     }
@@ -52,7 +58,7 @@ public class ArtnetBridgeHandler extends DmxOverEthernetHandler {
 
         setUniverse(configuration.universe, MIN_UNIVERSE_ID, MAX_UNIVERSE_ID);
         packetTemplate.setUniverse(universe.getUniverseId());
-
+        retryIterval = configuration.retryInterval;
         receiverNodes.clear();
         if (configuration.address.isEmpty()) {
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.CONFIGURATION_ERROR,
@@ -91,5 +97,42 @@ public class ArtnetBridgeHandler extends DmxOverEthernetHandler {
 
         packetTemplate = new ArtnetPacket();
         updateConfiguration();
+    }
+
+    @Override
+    protected void openConnection() {
+        if (getThing().getStatus() != ThingStatus.ONLINE) {
+            try {
+                createDatagramSocket();
+                // try to connect to verify that we can send packets
+                checkConnection();
+                logger.debug("opened socket {} in bridge {}", senderNode, this.thing.getUID());
+                // There can be only one receiver node in Artnet Bridge
+                updateStatus(ThingStatus.ONLINE);
+            } catch (IOException e) {
+                logger.debug("could not open socket {} in bridge {}: {}", senderNode, this.thing.getUID(),
+                        e.getMessage());
+                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "opening UDP socket failed");
+                // closing the socket (as the datagram socket is probably not null)
+                closeConnection();
+                logger.debug("Waiting {} seconds until next connection retry", retryIterval);
+                try {
+                    Thread.sleep(retryIterval * 1000);
+                } catch (InterruptedException ex) {
+                    throw new RuntimeException(ex);
+                }
+                openConnection();
+            }
+        }
+    }
+
+    private void checkConnection() throws IOException {
+        logger.debug("Checking connection: trying to send a packet to {}", receiverNodes.get(0));
+        sendDataToReceiverNode(getDatagramPacket(), receiverNodes.get(0));
+        if (getThing().getStatus() == ThingStatus.OFFLINE) {
+            throw new IOException("Could not connect to " + receiverNodes.get(0));
+        } else {
+            logger.debug("Connection to {} was successful", receiverNodes.get(0));
+        }
     }
 }

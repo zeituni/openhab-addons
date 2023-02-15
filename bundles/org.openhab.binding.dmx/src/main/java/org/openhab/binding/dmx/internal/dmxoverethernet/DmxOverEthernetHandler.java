@@ -42,34 +42,23 @@ public abstract class DmxOverEthernetHandler extends DmxBridgeHandler {
 
     protected boolean refreshAlways = false;
 
-    DatagramSocket socket = null;
+    protected DatagramSocket socket = null;
     private long lastSend = 0;
     private int repeatCounter = 0;
     private int sequenceNo = 0;
 
-    @Override
-    protected void openConnection() {
-        if (getThing().getStatus() != ThingStatus.ONLINE) {
-            try {
-                if (senderNode.getAddress() == null) {
-                    if (senderNode.getPort() == 0) {
-                        socket = new DatagramSocket();
-                        senderNode.setInetAddress(socket.getLocalAddress());
-                        senderNode.setPort(socket.getLocalPort());
-                    } else {
-                        socket = new DatagramSocket(senderNode.getPort());
-                        senderNode.setInetAddress(socket.getLocalAddress());
-                    }
-                } else {
-                    socket = new DatagramSocket(senderNode.getPort(), senderNode.getAddress());
-                }
-                updateStatus(ThingStatus.ONLINE);
-                logger.debug("opened socket {} in bridge {}", senderNode, this.thing.getUID());
-            } catch (SocketException e) {
-                logger.debug("could not open socket {} in bridge {}: {}", senderNode, this.thing.getUID(),
-                        e.getMessage());
-                updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "opening UDP socket failed");
+    protected void createDatagramSocket() throws SocketException {
+        if (senderNode.getAddress() == null) {
+            if (senderNode.getPort() == 0) {
+                socket = new DatagramSocket();
+                senderNode.setInetAddress(socket.getLocalAddress());
+                senderNode.setPort(socket.getLocalPort());
+            } else {
+                socket = new DatagramSocket(senderNode.getPort());
+                senderNode.setInetAddress(socket.getLocalAddress());
             }
+        } else {
+            socket = new DatagramSocket(senderNode.getPort(), senderNode.getAddress());
         }
     }
 
@@ -101,28 +90,44 @@ public abstract class DmxOverEthernetHandler extends DmxBridgeHandler {
                 repeatCounter++;
             }
             if (needsSending) {
-                packetTemplate.setPayload(universe.getBuffer(), universe.getBufferSize());
-                packetTemplate.setSequence(sequenceNo);
-                DatagramPacket sendPacket = new DatagramPacket(packetTemplate.getRawPacket(),
-                        packetTemplate.getPacketLength());
+                DatagramPacket sendPacket = getDatagramPacket();
                 for (IpNode receiverNode : receiverNodes) {
-                    sendPacket.setAddress(receiverNode.getAddress());
-                    sendPacket.setPort(receiverNode.getPort());
-                    logger.trace("sending packet with length {} to {}", packetTemplate.getPacketLength(),
-                            receiverNode.toString());
-                    try {
-                        socket.send(sendPacket);
-                    } catch (IOException e) {
-                        logger.debug("Could not send to {} in {}: {}", receiverNode, this.thing.getUID(),
-                                e.getMessage());
-                        closeConnection(ThingStatusDetail.COMMUNICATION_ERROR, "could not send DMX data");
-                    }
+                    sendDataToReceiverNode(sendPacket, receiverNode);
                 }
                 lastSend = now;
                 sequenceNo = (sequenceNo + 1) % 256;
             }
         } else {
             openConnection();
+        }
+    }
+
+    protected DatagramPacket getDatagramPacket() {
+        packetTemplate.setPayload(universe.getBuffer(), universe.getBufferSize());
+        packetTemplate.setSequence(sequenceNo);
+        DatagramPacket sendPacket = new DatagramPacket(packetTemplate.getRawPacket(), packetTemplate.getPacketLength());
+        return sendPacket;
+    }
+
+    protected void sendDataToReceiverNode(DatagramPacket sendPacket, IpNode receiverNode) {
+        if (socket == null || socket.isClosed()) {
+            logger.error("Socket is Null or closed!");
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.BRIDGE_OFFLINE);
+            return;
+        }
+        sendPacket.setAddress(receiverNode.getAddress());
+        sendPacket.setPort(receiverNode.getPort());
+        logger.trace("sending packet with length {} to {}", packetTemplate.getPacketLength(), receiverNode.toString());
+        try {
+            socket.send(sendPacket);
+            // If I arrived here then it is ok
+            if (ThingStatus.OFFLINE == getThing().getStatus()) {
+                logger.debug("Changing status of {} back from OFFLINE to ONLINE", getThing());
+                updateStatus(ThingStatus.ONLINE);
+            }
+        } catch (IOException e) {
+            logger.debug("Could not send to {} in {}: {}", receiverNode, this.thing.getUID(), e.getMessage());
+            closeConnection(ThingStatusDetail.COMMUNICATION_ERROR, "could not send DMX data");
         }
     }
 
